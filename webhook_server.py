@@ -61,17 +61,29 @@ async def handle_webhook(request: Request):
         if data.get("object") == "instagram":
             print("Processing Instagram webhook")
             for entry in data.get("entry", []):
+                print(f"Entry data: {entry}")
+                
                 # Handle DM messages
-                for messaging in entry.get("messaging", []):
-                    await process_message(messaging)
+                messaging_events = entry.get("messaging", [])
+                if messaging_events:
+                    print(f"Found {len(messaging_events)} messaging events")
+                    for messaging in messaging_events:
+                        await process_message(messaging)
                 
                 # Handle comment changes
-                for change in entry.get("changes", []):
-                    if change.get("field") == "comments":
-                        print("Found comment event!")
-                        await process_comment(change.get("value", {}))
-                    else:
-                        print(f"Ignoring field: {change.get('field')}")
+                changes = entry.get("changes", [])
+                if changes:
+                    print(f"Found {len(changes)} change events")
+                    for change in changes:
+                        print(f"Change field: {change.get('field')}")
+                        print(f"Change value: {change.get('value', {})}")
+                        if change.get("field") == "comments":
+                            print("Found comment event!")
+                            await process_comment(change.get("value", {}))
+                        else:
+                            print(f"Ignoring field: {change.get('field')}")
+                else:
+                    print("No changes array found in entry")
         elif data.get("object") == "page":
             print("Processing Page webhook")
             for entry in data.get("entry", []):
