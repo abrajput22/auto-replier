@@ -14,6 +14,12 @@ load_dotenv()
 
 app = FastAPI()
 
+# Startup logging
+print("=== Instagram Auto-Replier Starting ===")
+print(f"Environment loaded: {os.getenv('PAGE_ACCESS_TOKEN') is not None}")
+print(f"MongoDB configured: {os.getenv('MONGODB_USERNAME') is not None}")
+print("=======================================")
+
 # Instagram Graph API credentials from environment variables
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 IG_USER_ID = os.getenv("IG_USER_ID")
@@ -55,6 +61,20 @@ def generate_dm_reply(message_text, sender_id):
     
     response = llm.invoke([HumanMessage(content=prompt)])
     return response.content.strip()
+
+def get_sender_name(sender_id):
+    """Get sender name from Instagram API"""
+    try:
+        url = f"https://graph.facebook.com/v21.0/{sender_id}"
+        params = {
+            "fields": "name,username",
+            "access_token": PAGE_ACCESS_TOKEN
+        }
+        response = requests.get(url, params=params)
+        data = response.json()
+        return data.get("name", data.get("username", f"User_{sender_id[-4:]}"))
+    except:
+        return f"User_{sender_id[-4:]}"
 
 def send_dm_reply(recipient_id, reply_text):
     """Send DM reply using Facebook Messenger API"""
@@ -159,7 +179,12 @@ async def process_message(messaging):
         sender_id = messaging["sender"]["id"]
         message_id = message.get("mid", "")
         
-        print(f"Message from {sender_id} (ID: {message_id})")
+        # Get sender name for better logging
+        sender_name = get_sender_name(sender_id)
+        
+        print(f"\n=== NEW MESSAGE ===")
+        print(f"From: {sender_name} ({sender_id})")
+        print(f"Message ID: {message_id}")
         
         # Skip if already processed
         if message_id in processed_messages:
@@ -178,27 +203,30 @@ async def process_message(messaging):
             print("No text in message")
             return
         
-        print(f"Message text: {message_text}")
+        print(f"Message: '{message_text}'")
         
         # Generate and send reply with context
         reply = generate_dm_reply(message_text, sender_id)
-        print(f"Generated reply: {reply}")
+        print(f"Bot Reply: '{reply}'")
         
         result = send_dm_reply(sender_id, reply)
         
         if "message_id" in result or "id" in result:
-            print("Reply sent successfully")
+            print(f"SUCCESS: Reply sent to {sender_name}")
             # Save conversation to database
             save_conversation(sender_id, message_text, reply, message_id)
-            print("Conversation saved to database")
+            print(f"Conversation saved to database")
+            print(f"{'='*50}")
         else:
-            print(f"Failed to send reply: {result}")
+            print(f"FAILED: Could not send reply to {sender_name}")
+            print(f"Error: {result}")
             if "error" in result and result["error"].get("code") == 3:
                 print("Permission error - need instagram_manage_messages approval")
             
             # Save failed reply to database
             save_failed_reply(sender_id, message_text, reply, message_id, result)
-            print("Failed reply saved to database")
+            print(f"Failed reply saved to database")
+            print(f"{'='*50}")
     
     except Exception as e:
         print(f"Error processing message: {e}")
@@ -224,6 +252,7 @@ async def debug():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 # python webhook_server.py
